@@ -31,22 +31,25 @@ One branch per session, never shared:
 fleetwright/<host>/<session>-<started, UTC>
 ```
 
-Each branch starts from nothing rather than from `main`, so `main` holds only
-this file and every branch holds only its session. A push is one commit with
+Each branch starts from nothing rather than from `main`, so every branch holds
+only its session. `main` holds this file and `INDEX.md`: one line per session
+that has ended, newest first, linking to its branch. A push is one commit with
 the whole of what could be collected at that moment, so **the newest commit on
 a branch is the one to read**.
 
 | file | what | when it is missing |
 |---|---|---|
 | `README.md` | what the session was, and what this commit does and does not hold, in words | never |
-| `session.json` | name, title, brief, host, who started it, when, and why this push was made | never |
+| `session.json` | name, title, brief, host, who started it, when, why this push was made, and `workspace`: the commit, branch and remote the patch applies to | never |
 | `pane.txt` | the console's scrollback | the session was not running |
-| `transcript.jsonl` | the conversation, as Claude Code wrote it | on a sandboxed box, where it sits in the session's own volume |
+| `transcript.jsonl` | the conversation, as Claude Code wrote it | before the session's first turn, or over 6MB |
 | `workspace.patch` | what changed in the workspace, as a binary patch | over 6MB of changes: left out whole, never cut |
 
-Pushes happen before a session is stopped, forgotten or purged, every ten
-minutes while it runs, and when a runner is told to stop. A runner killed hard
-loses at most the ten minutes since its last push.
+Pushes happen each time a session comes back to its prompt (at most once a
+minute), before it is stopped, forgotten or purged, every ten minutes while it
+runs, and when a runner is told to stop. A push that would change nothing makes
+no commit. A runner killed hard in the middle of a long turn loses at most the
+ten minutes since its last push.
 
 ## Getting a session back
 
@@ -56,14 +59,16 @@ git branch -r --list 'origin/fleetwright/*'                 # every session
 git show origin/fleetwright/<host>/<session>-<when>:README.md
 ```
 
-To put a workspace back, apply its patch in a checkout of the **same commit**
-the session was working on. `session.json` does not record that commit, so
-take it from the session's own work: its branch, its pull request, or the
-transcript.
+To put a workspace back, apply its patch on the **same commit** the session
+was working on. `session.json` names it under `workspace.commit`, with the
+branch and the remote, and the branch's README gives the commands.
 
 ```sh
-git show origin/fleetwright/<host>/<session>-<when>:workspace.patch > /tmp/ws.patch
-git -C /path/to/that/checkout apply /tmp/ws.patch
+s=origin/fleetwright/<host>/<session>-<when>
+git show $s:session.json                       # workspace.commit, .remote
+git show $s:workspace.patch > /tmp/ws.patch
+git -C /path/to/a/clone checkout <workspace.commit>
+git -C /path/to/a/clone apply --binary /tmp/ws.patch
 ```
 
 For a workspace that was not a git checkout, the patch adds every file
@@ -71,7 +76,8 @@ against nothing, so the same `git apply` in an empty directory recreates it.
 
 ## What to know before relying on it
 
-- **Everything in the workspace is in the patch**, a `.env` included. That is
+- **Everything in the workspace is in the patch**, a `.env` included, and
+  the whole conversation is in the transcript. That is
   why the archive has to be private, and why Fleetwright asks GitHub whether
   this repository is private at the moment of every push, not only when it
   was linked. Make it public and the pushes stop.
